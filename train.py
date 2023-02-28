@@ -1,5 +1,6 @@
 import numpy as np
 from keras.datasets import fashion_mnist
+from sklearn.model_selection import train_test_split
 
 def map_data_with_classes(classes):
 
