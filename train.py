@@ -280,17 +280,194 @@ def gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size
 
   return h[-1],train_accuracy(mini_batch_trainy,y_predicted,trainy),weights,biases
 
-#num of hidden layers = 3
-#size of each hidden layer = 128
-#learning rate = 0.1
-#batch size = 32
-#activation = sigmoid
-#output = softmax
-#loss = cross entropy
+def momentum_based_gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy'):
+  
 
-print('Batch Gradient Descent')
-print()
-hL,train_ac,weights,biases = gradient_descent(trainX,trainy,3,128,0.1,'random','sigmoid',10,'softmax',32,'cross_entropy')
-test_ac = test_accuracy(testX,needed_y_test,weights,biases,3,'sigmoid','softmax')
-print("train_accuracy = ", train_ac*100,'%')
-print("test_accuracy = ", test_ac*100,'%')
+  number_batches = len(trainX)/mini_batch_size
+
+  #initialize layers of neural networks
+
+  layers = []
+  layer1 = {'input_size' : input_layer_size, 'output_size' : hidden_layer_size, 'function' : activation_function}
+  layers.append(layer1)
+  
+  i=0
+  while(i!=number_hidden_layers-1):
+    hlayer = {'input_size' : hidden_layer_size, 'output_size' : hidden_layer_size, 'function' : activation_function}
+    layers.append(hlayer)
+    i+=1
+  
+  layern = {'input_size' : hidden_layer_size, 'output_size' : output_layer_size, 'function' : output_function}
+  layers.append(layern)
+
+  #initialize weights and biases
+
+  weights,biases = initialize_weights_and_biases(layers,number_hidden_layers,'random')
+
+  mini_batch_trainX = np.array(np.array_split(trainX, number_batches))
+  mini_batch_trainy = np.array(np.array_split(trainy, number_batches))
+
+  past_weights = []
+  past_biases = []
+
+  beta = 0.9
+
+  i = 0
+  while(i!=number_hidden_layers+1):
+    past_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    past_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    i+=1
+
+  y_predicted = []
+  h=None
+  j = 0
+  while(j!=epochs):
+    k=0
+    batch_loss_ce = 0
+    batch_loss_mse = 0 
+    while(k!=number_batches):
+      a,h = forward_propagation(mini_batch_trainX[k],weights,biases,number_hidden_layers, activation_function, output_function)
+      y_predicted.append(h[-1])
+      batch_loss_ce += cross_entropy(h[-1],mini_batch_trainy[k])
+      batch_loss_mse += MSE(h[-1],mini_batch_trainy[k])
+      del_W,del_b = backward_propagation(mini_batch_trainy[k],mini_batch_trainX[k],h[-1],a,h,weights,number_hidden_layers ,activation_function)
+
+      i = 0
+      while(i!=number_hidden_layers+1):
+        past_weights[i] = (past_weights[i]*beta) + (del_W['W' + str(i+1)] * eta)
+        past_biases[i] = (past_biases[i]*beta) + (del_b['b' + str(i+1)] * eta)
+
+        weights[i] = weights[i]-past_weights[i]
+        biases[i] = biases[i]-past_biases[i]
+
+        i+=1
+
+      k+=1
+
+    print("iteration = ", j, ", cross entropy loss = " ,batch_loss_ce/number_batches, ', mse loss = ',batch_loss_mse/number_batches)
+
+    j+=1 
+
+  return h[-1],train_accuracy(mini_batch_trainy,y_predicted,trainy),weights,biases
+
+def nestrov_accelerated_gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy'):
+  
+
+  number_batches = len(trainX)/mini_batch_size
+
+  #initialize layers of neural networks
+
+  layers = []
+  layer1 = {'input_size' : input_layer_size, 'output_size' : hidden_layer_size, 'function' : activation_function}
+  layers.append(layer1)
+  
+  i=0
+  while(i!=number_hidden_layers-1):
+    hlayer = {'input_size' : hidden_layer_size, 'output_size' : hidden_layer_size, 'function' : activation_function}
+    layers.append(hlayer)
+    i+=1
+  
+  layern = {'input_size' : hidden_layer_size, 'output_size' : output_layer_size, 'function' : output_function}
+  layers.append(layern)
+
+  #initialize weights and biases
+
+  weights,biases = initialize_weights_and_biases(layers,number_hidden_layers,'random')
+
+  mini_batch_trainX = np.array(np.array_split(trainX, number_batches))
+  mini_batch_trainy = np.array(np.array_split(trainy, number_batches))
+
+  past_weights = []
+  past_biases = []
+
+  beta = 0.9
+
+  i = 0
+  while(i!=number_hidden_layers+1):
+    past_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    past_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    i+=1
+
+  y_predicted = []
+  h=None
+  j = 0
+  while(j!=epochs):
+    k=0
+    batch_loss_ce = 0
+    batch_loss_mse = 0 
+    while(k!=number_batches):
+      l=0
+      lookahead_weights = []
+      lookahead_biases = []
+      while(l!=number_hidden_layers+1):
+        lookahead_weights.append(weights[l] - (past_weights[l] * beta))
+        lookahead_biases.append(biases[l] - (past_biases[l] * beta))
+        l+=1
+      a,h = forward_propagation(mini_batch_trainX[k],lookahead_weights,lookahead_biases,number_hidden_layers, activation_function, output_function)
+      y_predicted.append(h[-1])
+      batch_loss_ce += cross_entropy(h[-1],mini_batch_trainy[k])
+      batch_loss_mse += MSE(h[-1],mini_batch_trainy[k])
+      del_W,del_b = backward_propagation(mini_batch_trainy[k],mini_batch_trainX[k],h[-1],a,h,lookahead_weights,number_hidden_layers ,activation_function)
+
+      i = 0
+      while(i!=number_hidden_layers+1):
+        past_weights[i] = (past_weights[i]*beta) + (del_W['W' + str(i+1)] * eta)
+        past_biases[i] = (past_biases[i]*beta) + (del_b['b' + str(i+1)] * eta)
+
+        weights[i] = weights[i]-past_weights[i]
+        biases[i] = biases[i]-past_biases[i]
+
+        i+=1
+
+      k+=1
+
+    print("iteration = ", j, ", cross entropy loss = " ,batch_loss_ce/number_batches, ', mse loss = ',batch_loss_mse/number_batches)
+
+    j+=1 
+
+  return h[-1],train_accuracy(mini_batch_trainy,y_predicted,trainy),weights,biases
+
+def train(trainX,trainy,textX,testy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function):
+  #num of hidden layers = 3
+  #size of each hidden layer = 128
+  #learning rate = 0.1
+  #batch size = 32
+  #activation = sigmoid
+  #output = softmax
+  #loss = cross entropy
+
+  print('Batch Gradient Descent')
+  print()
+  hL,train_ac,weights,biases = gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+  print("train_accuracy = ", train_ac*100,'%')
+  print("test_accuracy = ", test_ac*100,'%')
+
+  print('Stochastic Gradient Descent')
+  hL,train_ac,weights,biases = gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+  print("train_accuracy = ", train_ac*100,'%')
+  print("test_accuracy = ", test_ac*100,'%')
+
+  # sigmoid 3 128 0.001 best
+  # tanh 3 128 32 0.001 best
+  print()
+  print('Momentum Based Gradient Descent')
+  print()
+  hL,train_ac,weights,biases = momentum_based_gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+  print("train_accuracy = ", train_ac*100,'%')
+  print("test_accuracy = ", test_ac*100,'%')
+
+  # sigmoid 3 128 0.001 5 best
+  # tanh 3 128 32 0.001 5 best
+  print()
+  print('Nestrov Accelerated Gradient Descent')
+  print()
+
+  hL,train_ac,weights,biases = nestrov_accelerated_gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+  print("train_accuracy = ", train_ac*100,'%')
+  print("test_accuracy = ", test_ac*100,'%')
+
+ train(trainX,trainy,testX,needed_y_test,3,128,1e-2,'random','sigmoid',3,'softmax',32,'cross_entropy')
