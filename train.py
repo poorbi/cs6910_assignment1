@@ -25,16 +25,19 @@ def map_data_with_classes(classes):
 train_X = train_X/255
 test_X = test_X/255
 
+needed_y_train = train_Y
 needed_y_test = test_Y
 #flatten 2d image vectors to 1d vectors and treat them as training data
 
-trainx, valX, trainY, valy = train_test_split(train_X, train_Y, test_size=0.1, random_state=40)
+trainX, val_X, trainy, valy = train_test_split(train_X, train_Y, test_size=0.1, random_state=40)
 
-trainX = train_X.reshape(len(train_X),len(train_X[0])*len(train_X[1]))
+trainX = trainX.reshape(len(trainX),len(trainX[0])*len(trainX[1]))
 testX = test_X.reshape(len(test_X),len(test_X[0])*len(test_X[1]))
+valX = val_X.reshape(len(val_X),len(val_X[0])*len(val_X[1]))
 
-trainy = map_data_with_classes(train_Y)
+trainy = map_data_with_classes(trainy)
 testy = map_data_with_classes(test_Y)
+valiy = map_data_with_classes(valy)
 
 input_layer_size = len(trainX[0])
 output_layer_size = len(trainy[0])
@@ -48,13 +51,18 @@ def initialize_weights_and_biases(layers,number_hidden_layers = 1,init_type='ran
       ws = np.random.normal(0,0.5,(layers[i]['output_size'],layers[i]['input_size']))
       weights.append(ws)
 
-      bs = np.random.rand(layers[i]['output_size'],1)
+      bs = np.random.normal(0,0.5,(layers[i]['output_size'],1))
       biases.append(bs)
       
       i+=1
   elif(init_type == 'xavier'):
-    # TO BE DONE
-    b=[]
+    while(i!=number_hidden_layers+1):
+      limit = np.sqrt(6/(layers[i]['output_size'] + layers[i]['input_size']))
+      ws = np.random.uniform(-limit, limit, size=(layers[i]['output_size'], layers[i]['input_size']))
+      weights.append(ws)
+
+      bs = np.random.uniform(-limit, limit, size=(layers[i]['output_size'], 1))
+      biases.append(bs)
 
   return weights,biases
 
@@ -71,17 +79,19 @@ def softmax(x):
   y = []
   for i in range(len(x)):
     s = 0
+    x[i] -= x[i][np.argmax(x[i])]
     for j in range(len(x[i])):
       s+=(np.exp(x[i][j]))
     y.append(np.exp(x[i])/s)
   return np.array(y)
 
 def cross_entropy(y_hat,y):
-  error = -(np.multiply(y,np.log(y_hat))).sum()/len(y_hat)
+  ep = 1e-9
+  error = -(np.multiply(y,np.log(y_hat+ep))).sum()/len(y_hat)
   return error
 
-def MSE(y_hat,y):
-  error = np.sum(((y-y_hat)**2) / (2*len(y)))
+def mean_squared_error(y_hat,y):
+  error = np.sum(((y-y_hat)**2)/(2*len(y)))
   return error
 
 def activation_functions(x,activation_function = 'sigmoid') :
@@ -100,11 +110,9 @@ def activation_derivative(x, activation_function="sigmoid"):
     if activation_function == "sigmoid":
       return sigmoid(x)*(1.0-sigmoid(x))
     elif activation_function == "tanh":
-      return 1.0 - (tanh(x)**2)
+      return 1.0-(tanh(x)**2)
     elif activation_function == "relu":
-      relu = np.maximum(0, x)
-      relu[relu > 0] = 1
-      return relu
+      return 1. * (x>0)
     else:
       return 'error'
 
@@ -151,6 +159,13 @@ def test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_fun
     i+=1
   return c/len(testy)
 
+def val_loss(valX,valy,weights,biases,number_hidden_layers, activation_function, output_function):  
+  a,h = forward_propagation(valX,weights,biases,number_hidden_layers, activation_function, output_function)
+  y_hat = h[-1]
+  ep = 1e-9
+  error = -(np.multiply(valy,np.log(y_hat+ep))).sum()/len(y_hat)
+  return error
+
 def forward_propagation(batchtrainX,weights,biases,number_hidden_layers,activation_function,output_function):
   a = []
   h = []
@@ -194,9 +209,10 @@ def backward_propagation(batch_trainy , batch_trainX ,y_hat , a, h, weights, num
   del_h = {}
 
   batch_trainy = batch_trainy.reshape(len(batch_trainy),len(batch_trainy[0]))
-
+  
+  ep =1e-8
   del_a['a'+ str(number_hidden_layers+1)] = -(batch_trainy-y_hat)
-  del_h['h'+ str(number_hidden_layers+1)] = -(batch_trainy/y_hat)
+  del_h['h'+ str(number_hidden_layers+1)] = -(batch_trainy/(y_hat+ep))
 
   i = number_hidden_layers + 1
   while(i!=1):
@@ -231,8 +247,6 @@ def backward_propagation(batch_trainy , batch_trainX ,y_hat , a, h, weights, num
   return del_W,del_b
 
 def gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy'):
-  
-  number_batches = len(trainX)/mini_batch_size
 
 #initialize layers of neural networks
   layers = []
@@ -252,38 +266,63 @@ def gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size
 
   weights,biases =initialize_weights_and_biases(layers,number_hidden_layers,'random')
 
+  number_batches = len(trainX)/mini_batch_size
+
   mini_batch_trainX = np.array(np.array_split(trainX, number_batches))
   mini_batch_trainy = np.array(np.array_split(trainy, number_batches))
 
-  y_predicted = []
+  train_loss_list = []
+  val_loss_list = []
+  train_acc_list = []
+  val_acc_list = []
   h=None
   j = 0
   while(j!=epochs):
     k=0
-    batch_loss_ce = 0
-    batch_loss_mse = 0 
+    tloss = 0
+    vloss = 0
+    y_predicted = []
     while(k!=number_batches):
       a,h = forward_propagation(mini_batch_trainX[k],weights,biases,number_hidden_layers, activation_function, output_function)
       y_predicted.append(h[-1])
-      batch_loss_ce += cross_entropy(h[-1],mini_batch_trainy[k])
-      batch_loss_mse += MSE(h[-1],mini_batch_trainy[k])
+
+      if loss_function == 'cross_entropy':
+        tloss += cross_entropy(h[-1],mini_batch_trainy[k])
+      elif loss_function == 'mse':
+        tloss += mean_squared_error(h[-1],mini_batch_trainy[k])
+      else:
+        print('wrong loss function')
+      
       del_W,del_b = backward_propagation(mini_batch_trainy[k],mini_batch_trainX[k],h[-1],a,h,weights,number_hidden_layers ,activation_function)
 
       i = 0
       while(i!=len(weights)):
-        weights[i] = weights[i] - (del_W['W'+str(i+1)] * eta)
-        biases[i] = biases[i] - (del_b['b'+str(i+1)] * eta) 
+        weights[i] = weights[i] - (del_W['W'+str(i+1)]*eta)
+        biases[i] = biases[i] - (del_b['b'+str(i+1)]*eta) 
         i+=1
       k+=1
-    print("iteration = ", j, ", cross entropy loss = " ,batch_loss_ce/number_batches, ', mse loss = ',batch_loss_mse/number_batches)
-    j+=1
+    print(j)
+    train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
+    print("train_acc : ",train_acc*100)
+    print("train_loss : ", tloss/number_batches)
+    val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_acc : ",val_acc*100)
+    vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_loss : ",vloss)
 
-  return h[-1],train_accuracy(mini_batch_trainy,y_predicted,trainy),weights,biases
+    train_loss_list.append(tloss/number_batches)
+    val_loss_list.append(vloss)
+    train_acc_list.append(train_acc)
+    val_acc_list.append(val_acc)
+
+    j+=1
+  
+  plot_lists = [train_loss_list,val_loss_list,train_acc_list,val_acc_list]
+  return h[-1],weights,biases,plot_lists
 
 def momentum_based_gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy'):
   
-
-  number_batches = len(trainX)/mini_batch_size
+  
 
   #initialize layers of neural networks
 
@@ -301,6 +340,8 @@ def momentum_based_gradient_descent(trainX, trainy, number_hidden_layers = 1, hi
   layers.append(layern)
 
   #initialize weights and biases
+  
+  number_batches = len(trainX)/mini_batch_size
 
   weights,biases = initialize_weights_and_biases(layers,number_hidden_layers,'random')
 
@@ -318,18 +359,28 @@ def momentum_based_gradient_descent(trainX, trainy, number_hidden_layers = 1, hi
     past_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
     i+=1
 
-  y_predicted = []
+  train_loss_list = []
+  val_loss_list = []
+  train_acc_list = []
+  val_acc_list = []
   h=None
   j = 0
   while(j!=epochs):
     k=0
-    batch_loss_ce = 0
-    batch_loss_mse = 0 
+    tloss = 0
+    vloss = 0
+    y_predicted = []
     while(k!=number_batches):
       a,h = forward_propagation(mini_batch_trainX[k],weights,biases,number_hidden_layers, activation_function, output_function)
       y_predicted.append(h[-1])
-      batch_loss_ce += cross_entropy(h[-1],mini_batch_trainy[k])
-      batch_loss_mse += MSE(h[-1],mini_batch_trainy[k])
+
+      if loss_function == 'cross_entropy':
+        tloss += cross_entropy(h[-1],mini_batch_trainy[k])
+      elif loss_function == 'mse':
+        tloss += mean_squared_error(h[-1],mini_batch_trainy[k])
+      else:
+        print('wrong loss function')
+        
       del_W,del_b = backward_propagation(mini_batch_trainy[k],mini_batch_trainX[k],h[-1],a,h,weights,number_hidden_layers ,activation_function)
 
       i = 0
@@ -343,18 +394,26 @@ def momentum_based_gradient_descent(trainX, trainy, number_hidden_layers = 1, hi
         i+=1
 
       k+=1
+    print(j)
+    train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
+    print("train_acc : ",train_acc*100)
+    print("train_loss : ", tloss/number_batches)
+    val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_acc : ",val_acc*100)
+    vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_loss : ",vloss)
 
-    print("iteration = ", j, ", cross entropy loss = " ,batch_loss_ce/number_batches, ', mse loss = ',batch_loss_mse/number_batches)
+    train_loss_list.append(tloss/number_batches)
+    val_loss_list.append(vloss)
+    train_acc_list.append(train_acc)
+    val_acc_list.append(val_acc)
 
     j+=1 
-
-  return h[-1],train_accuracy(mini_batch_trainy,y_predicted,trainy),weights,biases
+  plot_lists = [train_loss_list,val_loss_list,train_acc_list,val_acc_list]
+  return h[-1],weights,biases,plot_lists
 
 def nestrov_accelerated_gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy'):
   
-
-  number_batches = len(trainX)/mini_batch_size
-
   #initialize layers of neural networks
 
   layers = []
@@ -374,6 +433,8 @@ def nestrov_accelerated_gradient_descent(trainX, trainy, number_hidden_layers = 
 
   weights,biases = initialize_weights_and_biases(layers,number_hidden_layers,'random')
 
+  number_batches = len(trainX)/mini_batch_size
+
   mini_batch_trainX = np.array(np.array_split(trainX, number_batches))
   mini_batch_trainy = np.array(np.array_split(trainy, number_batches))
 
@@ -388,13 +449,17 @@ def nestrov_accelerated_gradient_descent(trainX, trainy, number_hidden_layers = 
     past_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
     i+=1
 
-  y_predicted = []
+  train_loss_list = []
+  val_loss_list = []
+  train_acc_list = []
+  val_acc_list = []
   h=None
   j = 0
   while(j!=epochs):
     k=0
-    batch_loss_ce = 0
-    batch_loss_mse = 0 
+    tloss = 0
+    vloss = 0
+    y_predicted = []
     while(k!=number_batches):
       l=0
       lookahead_weights = []
@@ -405,8 +470,14 @@ def nestrov_accelerated_gradient_descent(trainX, trainy, number_hidden_layers = 
         l+=1
       a,h = forward_propagation(mini_batch_trainX[k],lookahead_weights,lookahead_biases,number_hidden_layers, activation_function, output_function)
       y_predicted.append(h[-1])
-      batch_loss_ce += cross_entropy(h[-1],mini_batch_trainy[k])
-      batch_loss_mse += MSE(h[-1],mini_batch_trainy[k])
+
+      if loss_function == 'cross_entropy':
+        tloss += cross_entropy(h[-1],mini_batch_trainy[k])
+      elif loss_function == 'mse':
+        tloss += mean_squared_error(h[-1],mini_batch_trainy[k])
+      else:
+        print('wrong loss function')
+      
       del_W,del_b = backward_propagation(mini_batch_trainy[k],mini_batch_trainX[k],h[-1],a,h,lookahead_weights,number_hidden_layers ,activation_function)
 
       i = 0
@@ -420,17 +491,26 @@ def nestrov_accelerated_gradient_descent(trainX, trainy, number_hidden_layers = 
         i+=1
 
       k+=1
+    print(j)
+    train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
+    print("train_acc : ",train_acc*100)
+    print("train_loss : ", tloss/number_batches)
+    val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_acc : ",val_acc*100)
+    vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_loss : ",vloss)
 
-    print("iteration = ", j, ", cross entropy loss = " ,batch_loss_ce/number_batches, ', mse loss = ',batch_loss_mse/number_batches)
+    train_loss_list.append(tloss/number_batches)
+    val_loss_list.append(vloss)
+    train_acc_list.append(train_acc)
+    val_acc_list.append(val_acc)
 
     j+=1 
 
-  return h[-1],train_accuracy(mini_batch_trainy,y_predicted,trainy),weights,biases
+  plot_lists = [train_loss_list,val_loss_list,train_acc_list,val_acc_list]
+  return h[-1],weights,biases,plot_lists
 
 def rmsprop(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy'):
-  
-
-  number_batches = len(trainX)/mini_batch_size
 
   #initialize layers of neural networks
 
@@ -450,6 +530,8 @@ def rmsprop(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta
   #initialize weights and biases
 
   weights,biases = initialize_weights_and_biases(layers,number_hidden_layers,'random')
+
+  number_batches = len(trainX)/mini_batch_size
 
   mini_batch_trainX = np.array(np.array_split(trainX, number_batches))
   mini_batch_trainy = np.array(np.array_split(trainy, number_batches))
@@ -466,19 +548,29 @@ def rmsprop(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta
     v_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
     i+=1
 
-  y_predicted = []
+  train_loss_list = []
+  val_loss_list = []
+  train_acc_list = []
+  val_acc_list = []
   h=None
   j = 0
   while(j!=epochs):
     k=0
-    batch_loss_ce = 0
-    batch_loss_mse = 0 
+    tloss = 0
+    vloss = 0
+    y_predicted = []
     while(k!=number_batches):
       l=0
       a,h = forward_propagation(mini_batch_trainX[k],weights,biases,number_hidden_layers, activation_function, output_function)
       y_predicted.append(h[-1])
-      batch_loss_ce += cross_entropy(h[-1],mini_batch_trainy[k])
-      batch_loss_mse += MSE(h[-1],mini_batch_trainy[k])
+
+      if loss_function == 'cross_entropy':
+        tloss += cross_entropy(h[-1],mini_batch_trainy[k])
+      elif loss_function == 'mse':
+        tloss += mean_squared_error(h[-1],mini_batch_trainy[k])
+      else:
+        print('wrong loss function')
+      
       del_W,del_b = backward_propagation(mini_batch_trainy[k],mini_batch_trainX[k],h[-1],a,h,weights,number_hidden_layers ,activation_function)
 
       i = 0
@@ -492,14 +584,268 @@ def rmsprop(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta
         i+=1
 
       k+=1
+    print(j)
+    train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
+    print("train_acc : ",train_acc*100)
+    print("train_loss : ", tloss/number_batches)
+    val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_acc : ",val_acc*100)
+    vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_loss : ",vloss)
 
-    print("iteration = ", j, ", cross entropy loss = " ,batch_loss_ce/number_batches, ', mse loss = ',batch_loss_mse/number_batches)
+    train_loss_list.append(tloss/number_batches)
+    val_loss_list.append(vloss)
+    train_acc_list.append(train_acc)
+    val_acc_list.append(val_acc)
 
     j+=1 
+  plot_lists = [train_loss_list,val_loss_list,train_acc_list,val_acc_list]
+  return h[-1],weights,biases,plot_lists
 
-  return h[-1],train_accuracy(mini_batch_trainy,y_predicted,trainy),weights,biases
+def adam(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy'):
 
-def train(trainX,trainy,textX,testy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function):
+#initialize layers of neural networks
+  layers = []
+  layer1 = {'input_size' : input_layer_size, 'output_size' : hidden_layer_size, 'function' : activation_function}
+  layers.append(layer1)
+  
+  i=0
+  while(i!=number_hidden_layers-1):
+    hlayer = {'input_size' : hidden_layer_size, 'output_size' : hidden_layer_size, 'function' : activation_function}
+    layers.append(hlayer)
+    i+=1
+  
+  layern = {'input_size' : hidden_layer_size, 'output_size' : output_layer_size, 'function' : output_function}
+  layers.append(layern)
+
+#initialize weights and biases
+
+  weights,biases =initialize_weights_and_biases(layers,number_hidden_layers,'random')
+
+  number_batches = len(trainX)/mini_batch_size
+
+  mini_batch_trainX = np.array(np.array_split(trainX, number_batches))
+  mini_batch_trainy = np.array(np.array_split(trainy, number_batches))
+
+  beta1 = 0.9
+  beta2 = 0.999
+  ep = 1e-3
+
+  v_weights = []
+  v_biases = []
+  v_hat_weights = []
+  v_hat_biases = []
+  m_weights = []
+  m_biases = []
+  m_hat_weights = []
+  m_hat_biases = [] 
+
+  i = 0
+  while(i!=number_hidden_layers+1):
+    v_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    v_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    v_hat_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    v_hat_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    m_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    m_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    m_hat_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    m_hat_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    i+=1
+
+  train_loss_list = []
+  val_loss_list = []
+  train_acc_list = []
+  val_acc_list = []
+  h=None
+  j = 0
+  c = 0
+  while(j!=epochs):
+    k=0
+    tloss = 0
+    vloss = 0
+    y_predicted = []
+    while(k!=number_batches):
+      c+=1
+      a,h = forward_propagation(mini_batch_trainX[k],weights,biases,number_hidden_layers, activation_function, output_function)
+      y_predicted.append(h[-1])
+
+      if loss_function == 'cross_entropy':
+        tloss += cross_entropy(h[-1],mini_batch_trainy[k])
+      elif loss_function == 'mse':
+        tloss += mean_squared_error(h[-1],mini_batch_trainy[k])
+      else:
+        print('wrong loss function')
+      
+      del_W,del_b = backward_propagation(mini_batch_trainy[k],mini_batch_trainX[k],h[-1],a,h,weights,number_hidden_layers ,activation_function)
+
+      i = 0
+      while(i!=len(weights)):
+        v_weights[i] = (v_weights[i]*beta2) + (((del_W['W'+str(i+1)])**2)*(1-beta2))
+        v_biases[i] = (v_biases[i]*beta2) + (((del_b['b'+str(i+1)])**2)*(1-beta2))
+
+        m_weights[i] = (m_weights[i]*beta1) + (del_W['W' + str(i+1)]*(1-beta1))
+        m_biases[i] = (m_biases[i]*beta1) + (del_b['b' + str(i+1)]*(1-beta1))
+
+        v_hat_weights[i] = (v_weights[i]/(1-beta2**c))
+        v_hat_biases[i] = (v_biases[i]/(1-beta2**c))
+
+        m_hat_weights[i] = (m_weights[i]/(1-beta1**c))
+        m_hat_biases[i] = (m_biases[i]/(1-beta1**c))
+
+        weights[i] = weights[i] - ((m_hat_weights[i]*eta/np.sqrt(v_hat_weights[i] + ep)))
+        biases[i] = biases[i] - ((m_hat_biases[i]*eta/np.sqrt(v_hat_biases[i] + ep)))
+        i+=1
+      k+=1
+
+    print(j)
+    train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
+    print("train_acc : ",train_acc*100)
+    print("train_loss : ", tloss/number_batches)
+    val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_acc : ",val_acc*100)
+    vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_loss : ",vloss)
+
+    train_loss_list.append(tloss/number_batches)
+    val_loss_list.append(vloss)
+    train_acc_list.append(train_acc)
+    val_acc_list.append(val_acc)
+    j+=1
+
+  plot_lists = [train_loss_list,val_loss_list,train_acc_list,val_acc_list]
+  return h[-1],weights,biases,plot_lists
+
+def nadam(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy'):
+  
+#initialize layers of neural networks
+  layers = []
+  layer1 = {'input_size' : input_layer_size, 'output_size' : hidden_layer_size, 'function' : activation_function}
+  layers.append(layer1)
+  
+  i=0
+  while(i!=number_hidden_layers-1):
+    hlayer = {'input_size' : hidden_layer_size, 'output_size' : hidden_layer_size, 'function' : activation_function}
+    layers.append(hlayer)
+    i+=1
+  
+  layern = {'input_size' : hidden_layer_size, 'output_size' : output_layer_size, 'function' : output_function}
+  layers.append(layern)
+
+#initialize weights and biases
+
+  weights,biases =initialize_weights_and_biases(layers,number_hidden_layers,'random')
+
+  number_batches = len(trainX)/mini_batch_size
+
+  mini_batch_trainX = np.array(np.array_split(trainX, number_batches))
+  mini_batch_trainy = np.array(np.array_split(trainy, number_batches))
+
+  beta1 = 0.9
+  beta2 = 0.999
+  ep = 1e-3
+
+  v_weights = []
+  v_biases = []
+  v_hat_weights = []
+  v_hat_biases = []
+  m_weights = []
+  m_biases = []
+  m_hat_weights = []
+  m_hat_biases = [] 
+
+  i = 0
+  while(i!=number_hidden_layers+1):
+    v_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    v_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    v_hat_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    v_hat_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    m_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    m_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    m_hat_weights.append(np.zeros((len(weights[i]),len(weights[i][0]))))
+    m_hat_biases.append(np.zeros((len(biases[i]),len(biases[i][0]))))
+    i+=1
+
+  train_loss_list = []
+  val_loss_list = []
+  train_acc_list = []
+  val_acc_list = []
+  h=None
+  j = 0
+  c = 0
+  while(j!=epochs):
+    k=0
+    tloss = 0
+    vloss = 0
+    y_predicted = []
+    while(k!=number_batches):
+      lookahead_weights = []
+      lookahead_biases = []
+      lookahead_v_hat_weights = []
+      lookahead_v_hat_biases = []
+      lookahead_m_hat_weights = []
+      lookahead_m_hat_biases = []
+      l = 0
+      c+=1
+      while(l!=number_hidden_layers+1):
+        lookahead_v_hat_weights.append((v_weights[l]*beta2)/(1 - (beta2**c)))
+        lookahead_v_hat_biases.append((v_biases[l]*beta2)/(1 - (beta2**c)))
+
+        lookahead_m_hat_weights.append((m_weights[l]*beta1)/(1 - beta1**c))
+        lookahead_m_hat_biases.append((m_biases[l]*beta1)/ (1 - beta1**c))
+
+        lookahead_weights.append(weights[l] - (lookahead_m_hat_weights[l] / np.sqrt(lookahead_v_hat_weights[l] + ep))*eta)
+        lookahead_biases.append(biases[l] - (lookahead_m_hat_biases[l] / np.sqrt(lookahead_v_hat_biases[l] + ep))*eta)
+        l+=1
+
+      a,h = forward_propagation(mini_batch_trainX[k],lookahead_weights,lookahead_biases,number_hidden_layers, activation_function, output_function)
+      y_predicted.append(h[-1])
+
+      if loss_function == 'cross_entropy':
+        tloss += cross_entropy(h[-1],mini_batch_trainy[k])
+      elif loss_function == 'mse':
+        tloss += mean_squared_error(h[-1],mini_batch_trainy[k])
+      else:
+        print('wrong loss function')
+
+      del_W,del_b = backward_propagation(mini_batch_trainy[k],mini_batch_trainX[k],h[-1],a,h,lookahead_weights,number_hidden_layers ,activation_function)
+
+      i = 0
+      while(i!=len(weights)):
+        v_weights[i] = (v_weights[i]*beta2) + (((del_W['W'+str(i+1)])**2)*(1-beta2))
+        v_biases[i] = (v_biases[i]*beta2) + (((del_b['b'+str(i+1)])**2)*(1-beta2))
+
+        m_weights[i] = (m_weights[i]*beta1) + (del_W['W' + str(i+1)]*(1-beta1))
+        m_biases[i] = (m_biases[i]*beta1) + (del_b['b' + str(i+1)]*(1-beta1))
+
+        v_hat_weights[i] = (v_weights[i]/(1-beta2**c))
+        v_hat_biases[i] = (v_biases[i]/(1-beta2**c))
+
+        m_hat_weights[i] = (m_weights[i]/(1-beta1**c))
+        m_hat_biases[i] = (m_biases[i]/(1-beta1**c))
+
+        weights[i] = weights[i] - ((m_hat_weights[i]*eta/np.sqrt(v_hat_weights[i] + ep)))
+        biases[i] = biases[i] - ((m_hat_biases[i]*eta/np.sqrt(v_hat_biases[i] + ep)))
+        i+=1
+      k+=1
+    print(j)
+    train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
+    print("train_acc : ",train_acc*100)
+    print("train_loss : ", tloss/number_batches)
+    val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_acc : ",val_acc*100)
+    vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("val_loss : ",vloss)
+
+    train_loss_list.append(tloss/number_batches)
+    val_loss_list.append(vloss)
+    train_acc_list.append(train_acc)
+    val_acc_list.append(val_acc)
+    j+=1
+
+  plot_lists = [train_loss_list,val_loss_list,train_acc_list,val_acc_list]
+  return h[-1],weights,biases,plot_lists
+
+def train(trainX,trainy,textX,testy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function,optimizer):
   #num of hidden layers = 3
   #size of each hidden layer = 128
   #learning rate = 0.1
@@ -507,48 +853,74 @@ def train(trainX,trainy,textX,testy,number_hidden_layers,hidden_layer_size,eta,i
   #activation = sigmoid
   #output = softmax
   #loss = cross entropy
+  # print('Batch Gradient Descent')
+  # print()
+  # hL,weights,biases,plot_list = gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+  # test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+  # print("test_accuracy = ", test_ac*100,'%')
+  # print(plot_list)
 
-  print('Batch Gradient Descent')
-  print()
-  hL,train_ac,weights,biases = gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
-  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-  print("train_accuracy = ", train_ac*100,'%')
-  print("test_accuracy = ", test_ac*100,'%')
-
-  print('Stochastic Gradient Descent')
-  hL,train_ac,weights,biases = gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
-  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-  print("train_accuracy = ", train_ac*100,'%')
-  print("test_accuracy = ", test_ac*100,'%')
+  if optimizer=='sgd':
+    print()
+    print('Stochastic Gradient Descent')
+    print()
+    hL,weights,biases,plot_list = gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,1,loss_function)
+    test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("test_accuracy = ", test_ac*100,'%')
+    print(plot_list)
 
   # sigmoid 3 128 0.001 best
   # tanh 3 128 32 0.001 best
-  print()
-  print('Momentum Based Gradient Descent')
-  print()
-  hL,train_ac,weights,biases = momentum_based_gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
-  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-  print("train_accuracy = ", train_ac*100,'%')
-  print("test_accuracy = ", test_ac*100,'%')
+  elif optimizer=='momentum':
+    print()
+    print('Momentum Based Gradient Descent')
+    print()
+    hL,weights,biases,plot_list = momentum_based_gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+    test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("test_accuracy = ", test_ac*100,'%')
+    print(plot_list)
 
   # sigmoid 3 128 0.001 5 best
   # tanh 3 128 32 0.001 5 best
-  print()
-  print('Nestrov Accelerated Gradient Descent')
-  print()
+  elif optimizer=='nag':
+    print()
+    print('Nestrov')
+    print()
 
-  hL,train_ac,weights,biases = nestrov_accelerated_gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
-  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-  print("train_accuracy = ", train_ac*100,'%')
-  print("test_accuracy = ", test_ac*100,'%')
-  
-  print()
-  print('RMSProp')
-  print()
+    hL,weights,biases,plot_list = nestrov_accelerated_gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+    test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("test_accuracy = ", test_ac*100,'%')
+    print(plot_list)
 
-  hL,train_ac,weights,biases = rmsprop(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
-  test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-  print("train_accuracy = ", train_ac*100,'%')
-  print("test_accuracy = ", test_ac*100,'%')
+  # sigmoid 3 128 0.001 5 best
+  # tanh 3 128 32 0.001 5 best
+  elif optimizer=='rmsprop':
+    print()
+    print('RMSProp')
+    print()
 
-train(trainX,trainy,testX,needed_y_test,3,128,1e-2,'random','sigmoid',3,'softmax',32,'cross_entropy')
+    hL,weights,biases,plot_list = rmsprop(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+    test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("test_accuracy = ", test_ac*100,'%')
+    print(plot_list)
+
+  elif optimizer == 'adam':
+    print()
+    print('Adam')
+    print()
+
+    hL,weights,biases,plot_list = adam(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+    test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("test_accuracy = ", test_ac*100,'%')
+    print(plot_list)
+
+  elif optimizer == 'nadam':
+    print()
+    print('NAdam')
+    print()
+    hL,weights,biases,plot_list = nadam(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function)
+    test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
+    print("test_accuracy = ", test_ac*100,'%')
+    print(plot_list)
+
+train(trainX,trainy,testX,needed_y_test,3,128,1e-3,'xavier','tanh',15,'softmax',30,'cross_entropy','nadam')
