@@ -21,6 +21,8 @@ os.environ['WAND_NOTEBOOK_NAME'] = 'Latest Final'
 
 # !wandb login c2d81ac4a00568bc9c2f420ec019b35bd24aac61
 
+# To input values as command line arguments I used argparse
+
 parser = argparse.ArgumentParser()
 
 parser.add_argument("-wp","--wandb_project",help="projectname")
@@ -63,6 +65,8 @@ nhls = 3
 hls = 128
 af = 'ReLU'
 
+# Check if entered argument is none otherwise assigning it to our variables
+
 if args.wandb_project!=None:
   proj_name = args.wandb_project
 if args.wandb_entity!=None:
@@ -99,18 +103,24 @@ if args.hidden_size!=None:
   hls = int(args.hidden_size)
 if args.activation!=None:
   af =  args.activation
+
 classes=['T-shirt/top','Trouser','Pullover','Dress','Coat','Sandal','Shirt','Sneaker','Bag','Ankle boot']
 
+# code to run sweeps in wandb
+
+# search method is bayes here
 sweep_config ={
     'method':'bayes'
 }
 
+# here we want W&B sweeps to maximize our validation accuracy
 metric = {
     'name' : 'validation_accuracy',
     'goal' : 'maximize'
 }
 sweep_config['metric'] = metric
 
+# various values of hyperparameters are specified here that are used for finding best model
 parameters_dict={
     'nhl':{
         'values' : [3,4,5]
@@ -142,8 +152,10 @@ parameters_dict={
 }
 sweep_config['parameters'] = parameters_dict
 
+# generating sweep id
 sweep_id = wandb.sweep(sweep_config,project=proj_name)
 
+# creating one hot vectors for labels
 def map_data_with_classes(classes):
 
   maxi = 0
@@ -163,19 +175,22 @@ def map_data_with_classes(classes):
     j+=1
   return matrix
 
+# loading and preprocessing data
 if data_set == 'fashion_mnist':
   (train_X,train_Y),(test_X,test_Y) = fashion_mnist.load_data()
 elif data_set == 'mnist':
   (train_X,train_Y),(test_X,test_Y) = mnist.load_data()
+
 train_X = train_X/255
 test_X = test_X/255
 
 needed_y_train = train_Y
 needed_y_test = test_Y
-#flatten 2d image vectors to 1d vectors and treat them as training data
 
+# splitting data into train and validation sets
 trainX, val_X, trainy, valy = train_test_split(train_X, train_Y, test_size=0.1, random_state=40)
 
+#flatten 2d image vectors to 1d vectors and treat them as training data
 trainX = trainX.reshape(len(trainX),len(trainX[0])*len(trainX[1]))
 testX = test_X.reshape(len(test_X),len(test_X[0])*len(test_X[1]))
 valX = val_X.reshape(len(val_X),len(val_X[0])*len(val_X[1]))
@@ -187,6 +202,7 @@ valiy = map_data_with_classes(valy)
 input_layer_size = len(trainX[0])
 output_layer_size = len(trainy[0])
 
+# function to initialize the weights and biases
 def initialize_weights_and_biases(layers,number_hidden_layers = 1,init_type='random'):
   weights = []
   biases = []
@@ -216,6 +232,7 @@ def initialize_weights_and_biases(layers,number_hidden_layers = 1,init_type='ran
 
   return weights,biases
 
+# calculate different activation functions
 def sigmoid(x):
   return 1.0/(1.0 + np.exp(-x))
 
@@ -225,6 +242,7 @@ def tanh(x):
 def relu(x):
   return np.maximum(0,x)
 
+# calculate output funtion softmax
 def softmax(x):
   y = []
   i=0
@@ -240,12 +258,14 @@ def softmax(x):
     i+=1
   return np.array(y)
 
+# calculate loss as cross entropy
 def cross_entropy(y_hat,y):
   epsilon_ce = 1e-9
   error = -(np.multiply(y,np.log(y_hat+epsilon_ce))).sum()/len(y_hat)
   return error
 
-def activation_functions(x,activation_function = 'sigmoid') :
+# calculate different activation functions
+def activation_functions(x,activation_function) :
   if activation_function == 'sigmoid' :
     return sigmoid(x)
   elif activation_function == 'softmax':
@@ -257,11 +277,13 @@ def activation_functions(x,activation_function = 'sigmoid') :
   else:
     return 'error'
 
+# calculate loss as mean squared error
 def mean_squared_error(y_hat,y):
   error = np.sum(((y-y_hat)**2)/(2*len(y)))
   return error
 
-def activation_derivative(x, activation_function="sigmoid"):
+# calculate different activation function derivatives
+def activation_derivative(x, activation_function):
     if activation_function == "sigmoid":
       return sigmoid(x)*(1.0-sigmoid(x))
     elif activation_function == "tanh":
@@ -271,6 +293,7 @@ def activation_derivative(x, activation_function="sigmoid"):
     else:
       return 'error'
 
+# calculate training accuracy
 def train_accuracy(batch_testy,y_predicted,trainy):
   tot = 0
   j = 0
@@ -298,6 +321,7 @@ def train_accuracy(batch_testy,y_predicted,trainy):
     j+=1
   return (c/len(trainy))
 
+# calculate validation and test accuracy
 def test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function):
   a,h = forward_propagation(testX,weights,biases,number_hidden_layers, activation_function, output_function)
   y_pred = h[-1]
@@ -314,6 +338,7 @@ def test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_fun
     i+=1
   return c/len(testy)
 
+# calculating regularizing term that is to be added to loss
 def calculate_regularizing_term(y,weight_decay_const,number_hidden_layers,weights):
   i = 0
   reg_term = 0.0
@@ -324,16 +349,17 @@ def calculate_regularizing_term(y,weight_decay_const,number_hidden_layers,weight
   reg_term = ((weight_decay_const/(2*len(y)))*(reg_term))
   return reg_term
 
+# calculating validation loss
 def val_loss(valX,valy,weights,biases,number_hidden_layers, activation_function,output_function,loss_function):  
   a,h = forward_propagation(valX,weights,biases,number_hidden_layers, activation_function, output_function)
   y_hat = h[-1]
   if loss_function == 'cross_entropy':
-    ep = 1e-9
     error = cross_entropy(y_hat,valy)
   elif loss_function == 'mean_squared_error':
     error = mean_squared_error(y_hat,valy)
   return error
 
+# forward propagation function
 def forward_propagation(batchtrainX,weights,biases,number_hidden_layers,activation_function,output_function):
   a = []
   h = []
@@ -370,6 +396,7 @@ def forward_propagation(batchtrainX,weights,biases,number_hidden_layers,activati
 
   return a,h
 
+# backward propagation function
 def backward_propagation(batch_trainy , batch_trainX ,y_hat , a, h, weights, number_hidden_layers ,derivative_function = 'sigmoid'):
   del_a = {}
   del_W = {}
@@ -382,21 +409,29 @@ def backward_propagation(batch_trainy , batch_trainX ,y_hat , a, h, weights, num
   del_a['a'+ str(number_hidden_layers+1)] = -(batch_trainy-y_hat)
   del_h['h'+ str(number_hidden_layers+1)] = -(batch_trainy/(y_hat+ep))
 
+  # starting from last layer and going to first layer
   i = number_hidden_layers + 1
   while(i!=1):
+    # calculating del of weights from del of a and h from foward propagation
     del_W['W'+ str(i)] = np.dot(del_a['a' + str(i)].T,h[i-2])
+
+    # applying L2 regularization
     del_W['W'+ str(i)] += (wdc * weights[i-1])
     del_W['W'+ str(i)]/=len(batch_trainX)
     
+    # calculating del of biases from del of a
     del_b['b'+ str(i)] = del_a['a'+ str(i)]
     
+    # calculating del of h from weights and del of a
     del_h['h'+ str(i-1)] = np.dot(weights[i-1].T , del_a['a' + str(i)].T)
 
+    # calculating del of a from del of h
     del_a['a'+str(i-1)] = np.multiply(del_h['h'+str(i-1)],activation_derivative(a[i-2].T,derivative_function))
     del_a['a'+str(i-1)] = del_a['a'+str(i-1)].T
 
     i-=1
   
+  # for first we only need to calculate del W and del b and not del h and del a
   del_W['W'+str('1')] = np.dot(del_a['a1'].T,batch_trainX)
   del_b['b'+str('1')] = del_a['a1']
   
@@ -416,6 +451,7 @@ def backward_propagation(batch_trainy , batch_trainX ,y_hat , a, h, weights, num
 
   return del_W,del_b
 
+# gradient decent
 def gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 0.1, initial_weights = 'random', activation_function = 'sigmoid', epochs = 1, output_function = 'softmax', mini_batch_size=4,loss_function = 'cross_entropy',weight_decay_const=0,wandb_flag=False):
 
 #initialize layers of neural networks
@@ -433,7 +469,6 @@ def gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size
   layers.append(layern)
 
 #initialize weights and biases
-
   weights,biases =initialize_weights_and_biases(layers,number_hidden_layers,initial_weights)
 
   number_batches = len(trainX)/mini_batch_size
@@ -471,18 +506,14 @@ def gradient_descent(trainX, trainy, number_hidden_layers = 1, hidden_layer_size
         biases[i] = biases[i] - (del_b['b'+str(i+1)]*eta) 
         i+=1
       k+=1
-    print(j)
     train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
-    print("train_acc : ",train_acc*100)
     reg_term_train = calculate_regularizing_term(trainy,weight_decay_const,number_hidden_layers,weights)
     tr_loss = tloss/number_batches + reg_term_train
-    print("train_loss : ", tr_loss)
     val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
-    print("val_acc : ",val_acc*100)
     vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function,loss_function)
     reg_term_val = calculate_regularizing_term(valiy,weight_decay_const,number_hidden_layers,weights)
     vloss = vloss + reg_term_val
-    print("val_loss : ",vloss)
+    print("epoch : ",j+1," validation loss : ",vloss)
 
     train_loss_list.append(tr_loss)
     val_loss_list.append(vloss)
@@ -567,18 +598,14 @@ def momentum_based_gradient_descent(trainX, trainy, number_hidden_layers = 1, hi
         i+=1
 
       k+=1
-    print(j)
     train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
-    print("train_acc : ",train_acc*100)
     reg_term_train = calculate_regularizing_term(trainy,weight_decay_const,number_hidden_layers,weights)
     tr_loss = tloss/number_batches + reg_term_train
-    print("train_loss : ", tr_loss)
     val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
-    print("val_acc : ",val_acc*100)
     vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function,loss_function)
     reg_term_val = calculate_regularizing_term(valiy,weight_decay_const,number_hidden_layers,weights)
     vloss = vloss + reg_term_val
-    print("val_loss : ",vloss)
+    print("epoch : ",j+1," validation loss : ",vloss)
 
     train_loss_list.append(tr_loss)
     val_loss_list.append(vloss)
@@ -671,18 +698,14 @@ def nestrov_accelerated_gradient_descent(trainX, trainy, number_hidden_layers = 
         i+=1
 
       k+=1
-    print(j)
     train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
-    print("train_acc : ",train_acc*100)
     reg_term_train = calculate_regularizing_term(trainy,weight_decay_const,number_hidden_layers,weights)
     tr_loss = tloss/number_batches + reg_term_train
-    print("train_loss : ", tr_loss)
     val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
-    print("val_acc : ",val_acc*100)
     vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function,loss_function)
     reg_term_val = calculate_regularizing_term(valiy,weight_decay_const,number_hidden_layers,weights)
     vloss = vloss + reg_term_val
-    print("val_loss : ",vloss)
+    print("epoch : ",j+1," validation loss : ",vloss)
 
     train_loss_list.append(tr_loss)
     val_loss_list.append(vloss)
@@ -771,18 +794,14 @@ def rmsprop(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta
         i+=1
 
       k+=1
-    print(j)
     train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
-    print("train_acc : ",train_acc*100)
     reg_term_train = calculate_regularizing_term(trainy,weight_decay_const,number_hidden_layers,weights)
     tr_loss = tloss/number_batches + reg_term_train
-    print("train_loss : ", tr_loss)
     val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
-    print("val_acc : ",val_acc*100)
     vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function,loss_function)
     reg_term_val = calculate_regularizing_term(valiy,weight_decay_const,number_hidden_layers,weights)
     vloss = vloss + reg_term_val
-    print("val_loss : ",vloss)
+    print("epoch : ",j+1," validation loss : ",vloss)
 
     train_loss_list.append(tr_loss)
     val_loss_list.append(vloss)
@@ -884,18 +903,14 @@ def adam(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta = 
         i+=1
       k+=1
 
-    print(j)
     train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
-    print("train_acc : ",train_acc*100)
     reg_term_train = calculate_regularizing_term(trainy,weight_decay_const,number_hidden_layers,weights)
     tr_loss = tloss/number_batches + reg_term_train
-    print("train_loss : ", tr_loss)
     val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
-    print("val_acc : ",val_acc*100)
     vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function,loss_function)
     reg_term_val = calculate_regularizing_term(valiy,weight_decay_const,number_hidden_layers,weights)
     vloss = vloss + reg_term_val
-    print("val_loss : ",vloss)
+    print("epoch : ",j+1," validation loss : ",vloss)
 
     train_loss_list.append(tr_loss)
     val_loss_list.append(vloss)
@@ -1010,18 +1025,15 @@ def nadam(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta =
         biases[i] = biases[i] - ((m_hat_biases[i]*eta/np.sqrt(v_hat_biases[i] + epsilon_)))
         i+=1
       k+=1
-    print(j)
+    
     train_acc = train_accuracy(mini_batch_trainy,y_predicted,trainy)
-    print("train_acc : ",train_acc*100)
     reg_term_train = calculate_regularizing_term(trainy,weight_decay_const,number_hidden_layers,weights)
     tr_loss = tloss/number_batches + reg_term_train
-    print("train_loss : ", tr_loss)
     val_acc = test_accuracy(valX,valy,weights,biases,number_hidden_layers,activation_function,output_function)
-    print("val_acc : ",val_acc*100)
     vloss = val_loss(valX,valiy,weights,biases,number_hidden_layers,activation_function,output_function,loss_function)
     reg_term_val = calculate_regularizing_term(valiy,weight_decay_const,number_hidden_layers,weights)
     vloss = vloss + reg_term_val
-    print("val_loss : ",vloss)
+    print("epoch : ",j+1," validation loss : ",vloss)
 
     train_loss_list.append(tr_loss)
     val_loss_list.append(vloss)
@@ -1037,87 +1049,42 @@ def nadam(trainX, trainy, number_hidden_layers = 1, hidden_layer_size = 4, eta =
   return h[-1],weights,biases,plot_lists
 
 def train(trainX,trainy,textX,testy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,mini_batch_size,loss_function,optimizer,output_function,weight_decay_const,wandb_flag=False):
-  #num of hidden layers = 3
-  #size of each hidden layer = 128
-  #learning rate = 0.1
-  #batch size = 32
-  #activation = sigmoid
-  #output = softmax
-  #loss = cross entropy
 
   if optimizer=='sgd':
-    print()
-    print('Stochastic Gradient Descent')
-    print()
+    
     hL,weights,biases,plot_list = gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function,weight_decay_const,wandb_flag)
-    return hL
-    # test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-    # print("test_accuracy = ", test_ac*100,'%')
-    # print(plot_list)
-
-  # sigmoid 3 128 0.001 best
-  # tanh 3 128 32 0.001 best
+    params = [weights,biases,number_hidden_layers,activation_function,output_function]
+    return params
+    
   elif optimizer=='momentum':
-    print()
-    print('Momentum Based Gradient Descent')
-    print()
+  
     hL,weights,biases,plot_list = momentum_based_gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function,weight_decay_const,wandb_flag)
     params = [weights,biases,number_hidden_layers,activation_function,output_function]
     return params
-    # test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-    # print("test_accuracy = ", test_ac*100,'%')
-    # print(plot_list)
-
-  # sigmoid 3 128 0.001 5 best
-  # tanh 3 128 32 0.001 5 best
+   
   elif optimizer=='nag':
-    print()
-    print('Nestrov')
-    print()
-
+  
     hL,weights,biases,plot_list = nestrov_accelerated_gradient_descent(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function,weight_decay_const,wandb_flag)
     params = [weights,biases,number_hidden_layers,activation_function,output_function]
     return params
-    # test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-    # print("test_accuracy = ", test_ac*100,'%')
-    # print(plot_list)
 
-  # sigmoid 3 128 0.001 5 best
-  # tanh 3 128 32 0.001 5 best
   elif optimizer=='rmsprop':
-    print()
-    print('RMSProp')
-    print()
 
     hL,weights,biases,plot_list = rmsprop(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function,weight_decay_const,wandb_flag)
     params = [weights,biases,number_hidden_layers,activation_function,output_function]
     return params
-    # test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-    # print("test_accuracy = ", test_ac*100,'%')
-    # print(plot_list)
 
   elif optimizer == 'adam':
-    print()
-    print('Adam')
-    print()
 
     hL,weights,biases,plot_list = adam(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function,weight_decay_const,wandb_flag)
     params = [weights,biases,number_hidden_layers,activation_function,output_function]
+
     return params
-    # test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-    # print("test_accuracy = ", test_ac*100,'%')
-    # print(plot_list)
 
   elif optimizer == 'nadam':
-    print()
-    print('NAdam')
-    print()
     hL,weights,biases,plot_list = nadam(trainX,trainy,number_hidden_layers,hidden_layer_size,eta,init_type,activation_function,epochs,output_function,mini_batch_size,loss_function,weight_decay_const,wandb_flag)
     params = [weights,biases,number_hidden_layers,activation_function,output_function]
     return params
-    # test_ac = test_accuracy(testX,testy,weights,biases,number_hidden_layers,activation_function,output_function)
-    # print("test_accuracy = ", test_ac*100,'%')
-    # print(plot_list)
 
 def train_data(config = None):
   
@@ -1129,23 +1096,23 @@ def train_data(config = None):
 
 # wandb.agent(sweep_id,train_data,count=60)
 
-# params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,'sgd','softmax',wdc)
-# params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,'momentum','softmax',wdc)
-# params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,'nag','softmax',wdc)
-# params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,'rmsprop','softmax',wdc)
-# params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,'adam','softmax',wdc)
+# v = [proj_name,entity_name,data_set,ep,bs,lf,op,lr,m_beta,rmsprop_beta,beta_1,beta_2,epsilon_,wdc,winit,nhls,hls,af]
+# print(v)
 params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,op,'softmax',wdc,False)
+test_ac = test_accuracy(testX,needed_y_test,params[0],params[1],params[2],params[3],params[4])
+print("Test accuracy on best model = ", test_ac*100,'%')
 
 # run = wandb.init(project="A1_DL", entity="cs22m064")
 # run.name = 'Confusion Matrix'
-# a,h = forward_propagation(testX,params[0],params[1],params[2], params[3], params[4])
-# hL = h[-1]
-# y_pred = np.zeros(len(hL))
-# i = 0
-# while(i!=len(hL)):
-#   y_pred[i] = np.argmax(hL[i])
-#   i+=1
-# y_pred
+
+a,h = forward_propagation(testX,params[0],params[1],params[2], params[3], params[4])
+hL = h[-1]
+y_pred = np.zeros(len(hL))
+i = 0
+while(i!=len(hL)):
+  y_pred[i] = np.argmax(hL[i])
+  i+=1
+y_pred
 
 # wandb.log({"The Confusion Marix": wandb.plot.confusion_matrix(preds = y_pred,y_true=test_Y,class_names=classes)})
 # wandb.save()
