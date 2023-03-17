@@ -1100,7 +1100,7 @@ def train_data(config = None):
 # print(v)
 params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,op,'softmax',wdc,False)
 test_ac = test_accuracy(testX,needed_y_test,params[0],params[1],params[2],params[3],params[4])
-print("Test accuracy on best model = ", test_ac*100,'%')
+print("Test accuracy = ", test_ac*100,'%')
 
 # run = wandb.init(project="A1_DL", entity="cs22m064")
 # run.name = 'Confusion Matrix'
