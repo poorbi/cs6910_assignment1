@@ -1094,13 +1094,14 @@ def train_data(config = None):
     print(config)
     train(trainX,trainy,testX,needed_y_test,config.nhl,config.hls,config.eta,config.wi,config.af,config.epochs,config.bs,'cross_entropy',config.opt,'softmax',config.wdc,True)
 
-# wandb.agent(sweep_id,train_data,count=60)
+# wandb.agent(sweep_id,train_data,count=100)
 
-# v = [proj_name,entity_name,data_set,ep,bs,lf,op,lr,m_beta,rmsprop_beta,beta_1,beta_2,epsilon_,wdc,winit,nhls,hls,af]
-# print(v)
+# CODE TO RUN BEST PARAMETERS
 params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,op,'softmax',wdc,False)
 test_ac = test_accuracy(testX,needed_y_test,params[0],params[1],params[2],params[3],params[4])
-print("Test accuracy = ", test_ac*100,'%')
+print("Test accuracy on the model = ", test_ac*100,'%')
+
+# CODE FOR PLOTTING CONFUSION MATRIX.. YOU CAN UNCOMMENT IT AND TEST IT
 
 # run = wandb.init(project="A1_DL", entity="cs22m064")
 # run.name = 'Confusion Matrix'
@@ -1115,5 +1116,40 @@ while(i!=len(hL)):
 y_pred
 
 # wandb.log({"The Confusion Marix": wandb.plot.confusion_matrix(preds = y_pred,y_true=test_Y,class_names=classes)})
+# wandb.save()
+# wandb.finish()
+
+#CODE FOR COMPARING MSE LOSS WITH CROSS ENTROPY LOSS. YOU CAN UNCOMMENT IT AND TEST IT
+
+# run = wandb.init(project=proj_name, entity=entity_name)
+# run.name = 'ce_best_config'
+# params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,op,'softmax',wdc,True)
+# test_ac = test_accuracy(testX,needed_y_test,params[0],params[1],params[2],params[3],params[4])
+# print("Test accuracy on best model = ", test_ac*100,'%')
+# run = wandb.init(project=proj_name, entity=entity_name)
+# run.name = 'mse_best_config'
+# params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,'mean_squared_error',op,'softmax',wdc,True)
+# test_ac = test_accuracy(testX,needed_y_test,params[0],params[1],params[2],params[3],params[4])
+# print("Test accuracy on best model = ", test_ac*100,'%')
+# wandb.save()
+# wandb.finish()
+
+# CODE FOR CHECKING BEST 3 CONFIGURATIONS FOR MNIST DATASET. YOU CAN UNCOMMENT IT AND TEST IT
+
+# run = wandb.init(project=proj_name, entity=entity_name)
+# run.name = 'hl_3_bs_32_ac_ReLU'
+# params = train(trainX,trainy,testX,needed_y_test,nhls,hls,lr,winit,af,ep,bs,lf,op,'softmax',wdc,True)
+# test_ac = test_accuracy(testX,needed_y_test,params[0],params[1],params[2],params[3],params[4])
+# print("Test accuracy on best model = ", test_ac*100,'%')
+# run = wandb.init(project=proj_name, entity=entity_name)
+# run.name = 'hl_5_bs_64_ac_ReLU'
+# params = train(trainX,trainy,testX,needed_y_test,5,hls,lr,winit,af,ep,64,lf,op,'softmax',0.0005,True)
+# test_ac = test_accuracy(testX,needed_y_test,params[0],params[1],params[2],params[3],params[4])
+# print("Test accuracy on best model = ", test_ac*100,'%')
+# run = wandb.init(project=proj_name, entity=entity_name)
+# run.name = 'hl_4_bs_32_ac_ReLU'
+# params = train(trainX,trainy,testX,needed_y_test,4,hls,lr,winit,af,ep,bs,lf,op,'softmax',wdc,True)
+# test_ac = test_accuracy(testX,needed_y_test,params[0],params[1],params[2],params[3],params[4])
+# print("Test accuracy on best model = ", test_ac*100,'%')
 # wandb.save()
 # wandb.finish()
